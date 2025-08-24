@@ -5,6 +5,7 @@ import { useSocket } from "../hooks/useSocket";
 import { SERVER_URL } from "../config";
 import FakeTab from "../components/FakeTab";
 import PdfScroller from "../components/PdfScroller";
+import Metronome from "../components/Metronome";
 
 const EVENTS = {
   UPDATE_MESSAGE: "update_message",
@@ -103,6 +104,8 @@ export default function SessionScreen({ sessionId = "demo" }) {
               </View>
             )}
           </View>
+
+          <Metronome tempoBpm={tempoBpm} isPlaying={state?.isPlaying || false} />
 
           <View style={styles.tabContainer}>
             {showPdf ? (
