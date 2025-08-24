@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "BandSync",
+    "slug": "bandsync",
+    "scheme": "bandsync",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "plugins": [],
+    "extra": {
+      "eas": { "projectId": "local-dev" }
+    }
+  }
+}
