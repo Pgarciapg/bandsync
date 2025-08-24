@@ -18,7 +18,7 @@ const EVENTS = {
 };
 
 export default function SessionScreen({ sessionId = "demo" }) {
-  const { state, emit, connected } = useSocket(sessionId);
+  const { state, emit, connected, roomStats } = useSocket(sessionId);
   const [message, setMessage] = useState("");
   const [role, setRole] = useState(null);
   const [currentPosition, setCurrentPosition] = useState(0);
@@ -58,6 +58,11 @@ export default function SessionScreen({ sessionId = "demo" }) {
         <Text style={styles.connectionStatus}>
           {connected ? "🟢 Connected" : "🔴 Disconnected"}
         </Text>
+        {roomStats && (
+          <Text style={styles.memberCount}>
+            👥 Members: {roomStats.memberCount}
+          </Text>
+        )}
       </View>
 
       {!role ? (
@@ -152,6 +157,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginTop: 5
+  },
+  memberCount: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 3
   },
   roleSelection: {
     flex: 1,

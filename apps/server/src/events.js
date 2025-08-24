@@ -9,5 +9,6 @@ export const EVENTS = {
   SET_ROLE: "set_role",
   SCROLL_TICK: "scroll_tick",
   SYNC_REQUEST: "sync_request",
-  SYNC_RESPONSE: "sync_response"
+  SYNC_RESPONSE: "sync_response",
+  ROOM_STATS: "room_stats"
 };

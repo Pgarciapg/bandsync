@@ -6,6 +6,7 @@ export function useSocket(sessionId) {
   const socketRef = useRef(null);
   const [state, setState] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [roomStats, setRoomStats] = useState(null);
 
   useEffect(() => {
     const socket = io(SERVER_URL, { transports: ["websocket"] });
@@ -31,12 +32,28 @@ export function useSocket(sessionId) {
       }
     });
 
+    socket.on("room_stats", (data) => {
+      if (data.sessionId === sessionId) {
+        setRoomStats(data);
+      }
+    });
+
+    socket.on("error", (error) => {
+      console.error("Socket error:", error);
+    });
+
     return () => {
       socket.disconnect();
     };
   }, [sessionId]);
 
-  const emit = (event, payload) => socketRef.current?.emit(event, payload);
+  const emit = (event, payload) => {
+    try {
+      socketRef.current?.emit(event, payload);
+    } catch (error) {
+      console.error("Error emitting event:", event, error);
+    }
+  };
 
-  return { state, emit, connected };
+  return { state, emit, connected, roomStats };
 }
