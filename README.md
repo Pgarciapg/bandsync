@@ -10,7 +10,30 @@ Mobile + realtime server to keep bands literally on the same page.
 5. Start mobile: `npm run dev:mobile` (Expo)
 6. Set `EXPO_PUBLIC_SERVER_URL` to your LAN IP (e.g. `http://192.168.1.21:3001`) for real devices.
 
+## 30-Second Demo
+
+**To demonstrate BandSync quickly:**
+
+1. Start server and mobile app as above
+2. Mobile app will auto-detect "demo" session and show **Demo Mode**
+3. Tap "🚀 Start Demo" - this automatically:
+   - Sets you as leader
+   - Loads sample guitar tab
+   - Sets tempo to 100 BPM  
+   - Starts playback with scroll sync
+   - Enables metronome with haptic feedback
+4. Open app on second device as "Follower" to see real-time sync
+5. Use tempo controls, play/pause, seek to demonstrate leader/follower sync
+6. Toggle between Fake Tab and PDF views to show content flexibility
+
+**Key demo points:**
+- Real-time position synchronization
+- Leader-only controls (followers can't control playback)
+- Visual metronome with haptic beats
+- Member count shows connected users
+- Smooth scrolling tied to position
+
 ## Workspaces
-- `apps/mobile`: Expo app
-- `apps/server`: Express + socket.io
+- `apps/mobile`: Expo app with React Native
+- `apps/server`: Express + socket.io with session management  
 - `packages/shared`: shared code (future)

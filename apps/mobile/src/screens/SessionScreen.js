@@ -24,6 +24,7 @@ export default function SessionScreen({ sessionId = "demo" }) {
   const [currentPosition, setCurrentPosition] = useState(0);
   const [tempoBpm, setTempoBpm] = useState(100);
   const [showPdf, setShowPdf] = useState(false);
+  const [demoMode, setDemoMode] = useState(sessionId === "demo");
 
   useEffect(() => {
     if (state) {
@@ -50,6 +51,25 @@ export default function SessionScreen({ sessionId = "demo" }) {
     }
   };
 
+  const startDemo = () => {
+    if (demoMode) {
+      // Auto setup for demo mode
+      setRole("leader");
+      emit(EVENTS.SET_ROLE, { sessionId, role: "leader" });
+      setShowPdf(true); // Show the PDF viewer
+      setTimeout(() => {
+        setTempoBpm(100);
+        emit(EVENTS.SET_TEMPO, { sessionId, tempo: 100 });
+        setTimeout(() => {
+          emit("seek", { sessionId, position: 0 });
+          setTimeout(() => {
+            emit(EVENTS.PLAY, { sessionId });
+          }, 500);
+        }, 300);
+      }, 200);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.statusBar}>
@@ -67,11 +87,37 @@ export default function SessionScreen({ sessionId = "demo" }) {
 
       {!role ? (
         <View style={styles.roleSelection}>
-          <Text style={styles.title}>Select Your Role</Text>
-          <View style={styles.buttonRow}>
-            <Button title="👑 Leader" onPress={() => handleRoleSelect("leader")} />
-            <Button title="👥 Follower" onPress={() => handleRoleSelect("follower")} />
-          </View>
+          <Text style={styles.title}>
+            {demoMode ? "BandSync Demo Mode" : "Select Your Role"}
+          </Text>
+          
+          {demoMode ? (
+            <View style={styles.demoContainer}>
+              <Text style={styles.demoText}>
+                🎸 Ready to demonstrate BandSync!
+              </Text>
+              <Text style={styles.demoInstructions}>
+                This will set you as leader, load the sample tab, set tempo to 100 BPM, and start playing.
+              </Text>
+              <Button 
+                title="🚀 Start Demo" 
+                onPress={startDemo}
+                color="#4CAF50"
+              />
+              <View style={styles.manualControls}>
+                <Text style={styles.orText}>or choose manually:</Text>
+                <View style={styles.buttonRow}>
+                  <Button title="👑 Leader" onPress={() => handleRoleSelect("leader")} />
+                  <Button title="👥 Follower" onPress={() => handleRoleSelect("follower")} />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.buttonRow}>
+              <Button title="👑 Leader" onPress={() => handleRoleSelect("leader")} />
+              <Button title="👥 Follower" onPress={() => handleRoleSelect("follower")} />
+            </View>
+          )}
         </View>
       ) : (
         <View style={styles.controls}>
@@ -172,6 +218,32 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 30
+  },
+  demoContainer: {
+    alignItems: 'center',
+    padding: 20
+  },
+  demoText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center'
+  },
+  demoInstructions: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20
+  },
+  manualControls: {
+    marginTop: 30,
+    alignItems: 'center'
+  },
+  orText: {
+    fontSize: 14,
+    color: '#888',
+    marginBottom: 10
   },
   buttonRow: {
     flexDirection: 'row',
