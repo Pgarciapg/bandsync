@@ -1,0 +1,56 @@
+BandSync Sample Guitar Tab
+
+Stairway to Heaven - Led Zeppelin
+Tuning: Standard (E A D G B E)
+
+Intro:
+Am    C    D    F    G    Am
+
+E|--------0----------0----------2----------1----------3----------0-------|
+B|--------1----------1----------3----------1----------3----------1-------|
+G|--------2----------0----------2----------2----------0----------2-------|
+D|--------2----------2----------0----------3----------0----------2-------|
+A|--------0----------3----------x----------3----------2----------0-------|
+E|--------x----------x----------x----------1----------3----------x-------|
+
+Verse 1:
+Am                           C                 D
+There's a lady who's sure all that glitters is gold
+F                        G                Am
+And she's buying a stairway to heaven
+
+Am                           C                   D
+When she gets there she knows, if the stores are all closed
+F                              G                 Am
+With a word she can get what she came for
+
+F                    G                Am
+Ooh, ooh, and she's buying a stairway to heaven
+
+Chorus:
+C                D               F
+There's a sign on the wall but she wants to be sure
+           Am
+'Cause you know sometimes words have two meanings
+C                    D                F
+In a tree by the brook, there's a songbird who sings
+              Am
+Sometimes all of our thoughts are misgiven
+
+Bridge:
+Am     G     F     G     Am     G     F     G
+
+Solo Section:
+E|--8--10--12--10--8--7--8--5--3--5--3--0--|
+B|--8--10--12--10--8--8--8--5--5--5--3--1--|
+G|--9--11--12--11--9--7--9--5--2--5--2--0--|
+D|--10-12--14--12--10-9--10-7--0--7--0--2--|
+A|--10-12--14--12--10-7--10-7--x--7--x--3--|
+E|--8--10--12--10--8--x--8--5--x--5--x--x--|
+
+Outro:
+F     G     Am     F     G     Am
+
+And she's buying a stairway to heaven...
+
+--- End of Tab ---

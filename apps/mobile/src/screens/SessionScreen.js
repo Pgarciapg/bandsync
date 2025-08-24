@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { View, Text, Button, TextInput, StyleSheet } from "react-native";
+import { View, Text, Button, TextInput, StyleSheet, Switch } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useSocket } from "../hooks/useSocket";
 import { SERVER_URL } from "../config";
 import FakeTab from "../components/FakeTab";
+import PdfScroller from "../components/PdfScroller";
 
 const EVENTS = {
   UPDATE_MESSAGE: "update_message",
@@ -21,6 +22,7 @@ export default function SessionScreen({ sessionId = "demo" }) {
   const [role, setRole] = useState(null);
   const [currentPosition, setCurrentPosition] = useState(0);
   const [tempoBpm, setTempoBpm] = useState(100);
+  const [showPdf, setShowPdf] = useState(false);
 
   useEffect(() => {
     if (state) {
@@ -82,6 +84,16 @@ export default function SessionScreen({ sessionId = "demo" }) {
               )}
             </View>
 
+            <View style={styles.viewToggle}>
+              <Text style={styles.toggleLabel}>View: {showPdf ? "PDF" : "Fake Tab"}</Text>
+              <Switch
+                value={showPdf}
+                onValueChange={setShowPdf}
+                trackColor={{ false: '#767577', true: '#81b0ff' }}
+                thumbColor={showPdf ? '#f5dd4b' : '#f4f3f4'}
+              />
+            </View>
+
             {role === "leader" && (
               <View style={styles.playbackControls}>
                 <Button 
@@ -93,7 +105,11 @@ export default function SessionScreen({ sessionId = "demo" }) {
           </View>
 
           <View style={styles.tabContainer}>
-            <FakeTab positionMs={currentPosition} />
+            {showPdf ? (
+              <PdfScroller positionMs={currentPosition} />
+            ) : (
+              <FakeTab positionMs={currentPosition} />
+            )}
           </View>
 
           <View style={styles.messageContainer}>
@@ -178,6 +194,15 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     width: 60,
     textAlign: 'center'
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10
+  },
+  toggleLabel: {
+    fontSize: 14,
+    marginRight: 10
   },
   playbackControls: {
     marginBottom: 10
