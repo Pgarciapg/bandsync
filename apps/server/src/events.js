@@ -5,5 +5,9 @@ export const EVENTS = {
   SET_TEMPO: "set_tempo",
   PLAY: "play",
   PAUSE: "pause",
-  SEEK: "seek"
+  SEEK: "seek",
+  SET_ROLE: "set_role",
+  SCROLL_TICK: "scroll_tick",
+  SYNC_REQUEST: "sync_request",
+  SYNC_RESPONSE: "sync_response"
 };

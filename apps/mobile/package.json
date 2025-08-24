@@ -7,6 +7,7 @@
     "start": "expo start -c"
   },
   "dependencies": {
+    "@react-native-community/slider": "^5.0.1",
     "expo": "^51.0.0",
     "expo-constants": "~16.0.1",
     "expo-status-bar": "~1.12.1",
