@@ -3,6 +3,7 @@ import { View, Text, Button, TextInput, StyleSheet } from "react-native";
 import Slider from "@react-native-community/slider";
 import { useSocket } from "../hooks/useSocket";
 import { SERVER_URL } from "../config";
+import FakeTab from "../components/FakeTab";
 
 const EVENTS = {
   UPDATE_MESSAGE: "update_message",
@@ -66,39 +67,34 @@ export default function SessionScreen({ sessionId = "demo" }) {
         </View>
       ) : (
         <View style={styles.controls}>
-          <Text style={styles.roleText}>Role: {role === "leader" ? "👑 Leader" : "👥 Follower"}</Text>
-          <Text style={styles.positionText}>Position: {Math.floor(currentPosition / 1000)}s</Text>
-          
-          <View style={styles.tempoContainer}>
-            <Text>Tempo: {Math.round(tempoBpm)} BPM</Text>
-            <TextInput
-              style={styles.tempoInput}
-              value={tempoBpm.toString()}
-              onChangeText={(text) => handleTempoChange(parseInt(text) || 100)}
-              editable={role === "leader"}
-              keyboardType="numeric"
-            />
-          </View>
-
-          <View style={styles.seekContainer}>
-            <Text>Position: {Math.floor(currentPosition / 1000)}s</Text>
-            <TextInput
-              style={styles.seekInput}
-              value={(currentPosition / 1000).toString()}
-              onChangeText={(text) => handleSeek((parseFloat(text) || 0) * 1000)}
-              editable={role === "leader"}
-              keyboardType="numeric"
-            />
-          </View>
-
-          {role === "leader" && (
-            <View style={styles.playbackControls}>
-              <Button 
-                title={state?.isPlaying ? "⏸️ Pause" : "▶️ Play"} 
-                onPress={() => emit(state?.isPlaying ? EVENTS.PAUSE : EVENTS.PLAY, { sessionId })} 
-              />
+          <View style={styles.controlsHeader}>
+            <Text style={styles.roleText}>Role: {role === "leader" ? "👑 Leader" : "👥 Follower"}</Text>
+            
+            <View style={styles.compactControls}>
+              <Text style={styles.tempoText}>Tempo: {Math.round(tempoBpm)} BPM</Text>
+              {role === "leader" && (
+                <TextInput
+                  style={styles.compactInput}
+                  value={tempoBpm.toString()}
+                  onChangeText={(text) => handleTempoChange(parseInt(text) || 100)}
+                  keyboardType="numeric"
+                />
+              )}
             </View>
-          )}
+
+            {role === "leader" && (
+              <View style={styles.playbackControls}>
+                <Button 
+                  title={state?.isPlaying ? "⏸️ Pause" : "▶️ Play"} 
+                  onPress={() => emit(state?.isPlaying ? EVENTS.PAUSE : EVENTS.PLAY, { sessionId })} 
+                />
+              </View>
+            )}
+          </View>
+
+          <View style={styles.tabContainer}>
+            <FakeTab positionMs={currentPosition} />
+          </View>
 
           <View style={styles.messageContainer}>
             <TextInput
@@ -155,37 +151,43 @@ const styles = StyleSheet.create({
   controls: {
     flex: 1
   },
+  controlsHeader: {
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    marginBottom: 10
+  },
   roleText: {
     fontSize: 18,
     fontWeight: 'bold',
     marginBottom: 10
   },
-  positionText: {
-    fontSize: 16,
-    marginBottom: 20
+  compactControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10
   },
-  tempoContainer: {
-    marginBottom: 20
+  tempoText: {
+    fontSize: 14,
+    marginRight: 10
   },
-  tempoInput: {
+  compactInput: {
     borderWidth: 1,
     borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5
-  },
-  seekContainer: {
-    marginBottom: 20
-  },
-  seekInput: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 5
+    padding: 5,
+    borderRadius: 3,
+    width: 60,
+    textAlign: 'center'
   },
   playbackControls: {
-    marginBottom: 20
+    marginBottom: 10
+  },
+  tabContainer: {
+    flex: 1,
+    marginBottom: 10,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+    overflow: 'hidden'
   },
   messageContainer: {
     marginBottom: 20
