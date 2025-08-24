@@ -1,5 +1,5 @@
 import React from "react";
-import { SafeAreaView } from "react-native";
+import { SafeAreaView, AppRegistry } from "react-native";
 import SessionScreen from "./src/screens/SessionScreen";
 
 export default function App() {
@@ -9,3 +9,6 @@ export default function App() {
     </SafeAreaView>
   );
 }
+
+// Register the main component
+AppRegistry.registerComponent('main', () => App);
