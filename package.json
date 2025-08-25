@@ -1,12 +1,64 @@
 {
   "name": "bandsync",
+  "version": "2.0.0",
+  "description": "Real-time musical collaboration platform with sub-100ms synchronization",
   "private": true,
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:mobile\" --names \"server,mobile\" --prefix-colors \"blue,green\"",
     "dev:server": "npm --workspace apps/server run dev",
-    "dev:mobile": "npm --workspace apps/mobile run start"
-  }
+    "dev:mobile": "npm --workspace apps/mobile run start",
+    "dev:shared": "npm --workspace packages/shared run build --watch",
+    
+    "build": "npm run build:shared && npm run build:server && npm run build:mobile",
+    "build:server": "npm --workspace apps/server run build",
+    "build:mobile": "npm --workspace apps/mobile run build",
+    "build:shared": "npm --workspace packages/shared run build",
+    
+    "test": "npm run test:shared && npm run test:server && npm run test:mobile",
+    "test:server": "npm --workspace apps/server run test --if-present",
+    "test:mobile": "npm --workspace apps/mobile run test --if-present",
+    "test:shared": "npm --workspace packages/shared run test",
+    "test:coverage": "npm run test -- --coverage",
+    
+    "lint": "npm run lint:server && npm run lint:mobile && npm run lint:shared",
+    "lint:server": "npm --workspace apps/server run lint --if-present",
+    "lint:mobile": "npm --workspace apps/mobile run lint --if-present", 
+    "lint:shared": "npm --workspace packages/shared run lint --if-present",
+    
+    "type-check": "npm run type-check:mobile && npm run type-check:shared",
+    "type-check:mobile": "npm --workspace apps/mobile run type-check --if-present",
+    "type-check:shared": "npm --workspace packages/shared run type-check --if-present",
+    
+    "clean": "npm run clean:deps && npm run clean:builds",
+    "clean:deps": "rm -rf node_modules apps/*/node_modules packages/*/node_modules",
+    "clean:builds": "rm -rf apps/*/dist packages/*/dist apps/*/build",
+    
+    "workspace-info": "npm ls --workspaces --depth=0",
+    "postinstall": "npm run build:shared"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "@types/node": "^20.10.0"
+  },
+  "engines": {
+    "node": ">=18.17.0",
+    "npm": ">=9.0.0"
+  },
+  "keywords": [
+    "music",
+    "collaboration", 
+    "real-time",
+    "synchronization",
+    "metronome",
+    "band",
+    "websocket",
+    "react-native",
+    "typescript"
+  ],
+  "author": "BandSync Team",
+  "license": "MIT"
 }

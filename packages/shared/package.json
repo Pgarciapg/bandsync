@@ -1,5 +1,37 @@
 {
   "name": "bandsync-shared",
   "version": "1.0.0",
-  "main": "index.js"
+  "description": "Shared types and utilities for BandSync real-time musical collaboration",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "echo 'Build not required for JS files'",
+    "test": "echo 'Tests will be added later'",
+    "test:watch": "echo 'Tests will be added later'",
+    "test:coverage": "echo 'Tests will be added later'",
+    "lint": "echo 'Linting will be added later'",
+    "prepublishOnly": "echo 'Publishing not yet configured'"
+  },
+  "keywords": [
+    "music",
+    "metronome", 
+    "synchronization",
+    "real-time",
+    "timing",
+    "collaboration"
+  ],
+  "author": "BandSync Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bandsync/bandsync.git",
+    "directory": "packages/shared"
+  },
+  "bugs": {
+    "url": "https://github.com/bandsync/bandsync/issues"
+  },
+  "homepage": "https://github.com/bandsync/bandsync#readme"
 }
