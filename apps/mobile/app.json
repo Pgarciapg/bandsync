@@ -5,6 +5,10 @@
     "scheme": "bandsync",
     "version": "1.0.0",
     "orientation": "portrait",
+    "platforms": ["ios", "android", "web"],
+    "ios": {
+      "bundleIdentifier": "com.bandsync.app"
+    },
     "plugins": [],
     "extra": {
       "eas": { "projectId": "local-dev" }

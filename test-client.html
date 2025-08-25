@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>BandSync Test Client</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+        .controls { margin: 20px 0; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+        .leader { background: #28a745; color: white; }
+        .follower { background: #6c757d; color: white; }
+        .tempo { font-size: 20px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🎵 BandSync Test Client</h1>
+    
+    <div id="status" class="status disconnected">
+        ❌ Disconnected
+    </div>
+    
+    <div id="info">
+        <div id="role">Role: None</div>
+        <div id="members">Members: 0</div>
+        <div id="tempo" class="tempo">Tempo: 100 BPM</div>
+    </div>
+    
+    <div class="controls">
+        <button onclick="playSession()" id="playBtn">▶️ Play</button>
+        <button onclick="pauseSession()" id="pauseBtn">⏸️ Pause</button>
+        <button onclick="changeTempo(120)">🔥 Tempo 120</button>
+        <button onclick="changeTempo(80)">🐌 Tempo 80</button>
+    </div>
+    
+    <div id="messages"></div>
+
+    <script>
+        const socket = io('http://192.168.1.21:3001', { transports: ['websocket'] });
+        const sessionId = 'demo';
+        let isLeader = false;
+        let currentTempo = 100;
+        let isPlaying = false;
+        
+        socket.on('connect', () => {
+            document.getElementById('status').innerHTML = '✅ Connected';
+            document.getElementById('status').className = 'status connected';
+            socket.emit('join_session', { sessionId });
+        });
+        
+        socket.on('disconnect', () => {
+            document.getElementById('status').innerHTML = '❌ Disconnected';
+            document.getElementById('status').className = 'status disconnected';
+        });
+        
+        socket.on('snapshot', (data) => {
+            console.log('Snapshot:', data);
+            if (data.tempoBpm) {
+                currentTempo = data.tempoBpm;
+                document.getElementById('tempo').innerHTML = `Tempo: ${data.tempoBpm} BPM`;
+            }
+            if (data.isPlaying !== undefined) {
+                isPlaying = data.isPlaying;
+                updatePlayPauseButtons();
+            }
+        });
+        
+        socket.on('room_stats', (data) => {
+            if (data.sessionId === sessionId) {
+                document.getElementById('members').innerHTML = `Members: ${data.memberCount}`;
+                isLeader = data.isLeader;
+                document.getElementById('role').innerHTML = isLeader ? 
+                    '👑 Role: Leader' : '👥 Role: Follower';
+                    
+                updatePlayPauseButtons();
+            }
+        });
+        
+        socket.on('scroll_tick', (data) => {
+            if (data.sessionId === sessionId) {
+                // Handle tempo updates
+                if (data.tempoBpm && data.tempoBpm !== currentTempo) {
+                    currentTempo = data.tempoBpm;
+                    document.getElementById('tempo').innerHTML = `Tempo: ${data.tempoBpm} BPM`;
+                }
+            }
+        });
+        
+        function updatePlayPauseButtons() {
+            const playBtn = document.getElementById('playBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            
+            playBtn.disabled = !isLeader || isPlaying;
+            pauseBtn.disabled = !isLeader || !isPlaying;
+            
+            playBtn.className = isLeader && !isPlaying ? 'leader' : 'follower';
+            pauseBtn.className = isLeader && isPlaying ? 'leader' : 'follower';
+        }
+        
+        function playSession() {
+            if (isLeader && !isPlaying) {
+                socket.emit('play', { sessionId });
+                isPlaying = true;
+                updatePlayPauseButtons();
+                addMessage('🎵 Started playback');
+            } else if (!isLeader) {
+                addMessage('❌ Only leader can play');
+            }
+        }
+        
+        function pauseSession() {
+            if (isLeader && isPlaying) {
+                socket.emit('pause', { sessionId });
+                isPlaying = false;
+                updatePlayPauseButtons();
+                addMessage('⏸️ Paused playback');
+            } else if (!isLeader) {
+                addMessage('❌ Only leader can pause');
+            }
+        }
+        
+        function changeTempo(bpm) {
+            if (isLeader) {
+                socket.emit('set_tempo', { sessionId, tempo: bpm });
+                addMessage(`🎼 Changed tempo to ${bpm} BPM`);
+            } else {
+                addMessage('❌ Only leader can change tempo');
+            }
+        }
+        
+        function addMessage(msg) {
+            const messages = document.getElementById('messages');
+            const div = document.createElement('div');
+            div.innerHTML = `${new Date().toLocaleTimeString()}: ${msg}`;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+    </script>
+</body>
+</html>
