@@ -7,9 +7,14 @@
     "dev": "nodemon server-hybrid.js",
     "dev:basic": "nodemon server.js", 
     "dev:enhanced": "nodemon server-enhanced.js",
+    "dev:day6": "nodemon server-day6.js",
     "start": "node server-hybrid.js",
     "start:enhanced": "node server-enhanced.js",
-    "test": "echo \"Tests not yet implemented\" && exit 1",
+    "start:day6": "node server-day6.js",
+    "test": "npm run test:redis && npm run test:roles",
+    "test:redis": "node src/tests/redis-integration.js",
+    "test:roles": "node src/tests/role-management.js",
+    "test:enhanced": "node test-client.js",
     "lint": "echo \"Linting not configured yet\" && exit 0"
   },
   "dependencies": {

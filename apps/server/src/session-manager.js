@@ -183,13 +183,7 @@ export class SessionManager {
 
       // Handle leader change if necessary
       if (session.leaderSocketId === socket.id && updatedSession.leaderSocketId !== socket.id) {
-        await this.syncEngine.stopMetronomeSync(sessionId);
-        
-        this.io.to(sessionId).emit(EVENTS.LEADER_ELECTION, {
-          oldLeader: socket.id,
-          newLeader: updatedSession.leaderSocketId,
-          sessionId
-        });
+        await this.handleLeaderTransition(sessionId, socket.id, updatedSession.leaderSocketId);
       }
 
       // Notify remaining members
@@ -237,6 +231,204 @@ export class SessionManager {
 
     } catch (error) {
       console.error('Error destroying session:', error);
+      return false;
+    }
+  }
+
+  /**
+   * ENHANCED LEADER ELECTION & ROLE MANAGEMENT
+   */
+
+  async handleLeaderTransition(sessionId, oldLeader, newLeader) {
+    try {
+      console.log(`Leader transition in session ${sessionId}: ${oldLeader} -> ${newLeader}`);
+      
+      // Stop current metronome sync immediately
+      await this.syncEngine.stopMetronomeSync(sessionId);
+      
+      // Update session state with new leader
+      const session = await this.redis.updateSession(sessionId, {
+        leaderSocketId: newLeader,
+        'metronome.isPlaying': false,
+        'metronome.lastLeaderChange': Date.now()
+      });
+      
+      if (!session) return false;
+      
+      // Notify all members of leader change
+      this.io.to(sessionId).emit(EVENTS.LEADER_ELECTION, {
+        oldLeader,
+        newLeader,
+        sessionId,
+        timestamp: Date.now(),
+        reason: 'leader_disconnected'
+      });
+      
+      // Send leader-specific instructions to new leader
+      const newLeaderSocket = this.io.sockets.sockets.get(newLeader);
+      if (newLeaderSocket) {
+        newLeaderSocket.emit(EVENTS.ROLE_ASSIGNED, {
+          role: 'leader',
+          sessionId,
+          permissions: ['start_metronome', 'change_tempo', 'manage_session'],
+          timestamp: Date.now()
+        });
+      }
+      
+      // Profile latency for leader transition
+      this.profileLatency(sessionId, 'leader_transition', Date.now());
+      
+      return true;
+    } catch (error) {
+      console.error('Error in leader transition:', error);
+      return false;
+    }
+  }
+
+  async electNewLeader(sessionId, excludeSocketId = null) {
+    try {
+      const session = await this.redis.getSession(sessionId);
+      if (!session) return null;
+      
+      const availableMembers = Array.from(session.members.values())
+        .filter(member => member.socketId !== excludeSocketId)
+        .filter(member => {
+          // Check if socket is still connected
+          const socket = this.io.sockets.sockets.get(member.socketId);
+          return socket && socket.connected;
+        });
+      
+      if (availableMembers.length === 0) {
+        console.log(`No available members for leader election in session ${sessionId}`);
+        return null;
+      }
+      
+      // Prioritize by: 1. Preferred role, 2. Lowest latency, 3. Earliest join time
+      const sortedMembers = availableMembers.sort((a, b) => {
+        // Prefer members who want to be leader
+        if (a.preferredRole === 'leader' && b.preferredRole !== 'leader') return -1;
+        if (b.preferredRole === 'leader' && a.preferredRole !== 'leader') return 1;
+        
+        // Then by latency (lower is better)
+        const latencyA = this.latencyMetrics.clientLatencies.get(a.socketId)?.latency || 999;
+        const latencyB = this.latencyMetrics.clientLatencies.get(b.socketId)?.latency || 999;
+        if (latencyA !== latencyB) return latencyA - latencyB;
+        
+        // Finally by join time (earlier is better)
+        return a.joinedAt - b.joinedAt;
+      });
+      
+      const newLeader = sortedMembers[0];
+      console.log(`Elected new leader: ${newLeader.socketId} (${newLeader.displayName}) for session ${sessionId}`);
+      
+      return newLeader.socketId;
+    } catch (error) {
+      console.error('Error in leader election:', error);
+      return null;
+    }
+  }
+
+  async requestRoleChange(socket, { sessionId, requestedRole }) {
+    try {
+      const session = await this.redis.getSession(sessionId);
+      if (!session || !session.members.has(socket.id)) {
+        socket.emit(EVENTS.ERROR_VALIDATION, { message: 'Not a member of this session' });
+        return false;
+      }
+      
+      const member = session.members.get(socket.id);
+      const currentRole = member.role || 'follower';
+      
+      if (requestedRole === 'leader') {
+        if (session.leaderSocketId && session.leaderSocketId !== socket.id) {
+          // Request leader transfer
+          const currentLeaderSocket = this.io.sockets.sockets.get(session.leaderSocketId);
+          if (currentLeaderSocket) {
+            currentLeaderSocket.emit(EVENTS.ROLE_TRANSFER, {
+              sessionId,
+              requesterId: socket.id,
+              requesterName: member.displayName,
+              requestedRole,
+              timestamp: Date.now()
+            });
+            
+            socket.emit(EVENTS.ROLE_REQUEST, {
+              status: 'pending',
+              message: 'Leadership transfer requested',
+              timestamp: Date.now()
+            });
+            
+            return true;
+          }
+        } else {
+          // No current leader, assign immediately
+          return await this.assignRole(sessionId, socket.id, 'leader');
+        }
+      } else {
+        // Other role changes (follower, etc.) are allowed immediately
+        return await this.assignRole(sessionId, socket.id, requestedRole);
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('Error in role change request:', error);
+      socket.emit(EVENTS.ERROR_VALIDATION, { message: 'Failed to process role change' });
+      return false;
+    }
+  }
+
+  async assignRole(sessionId, socketId, role) {
+    try {
+      const session = await this.redis.getSession(sessionId);
+      if (!session || !session.members.has(socketId)) return false;
+      
+      const member = session.members.get(socketId);
+      const oldRole = member.role || 'follower';
+      
+      // Update member role
+      member.role = role;
+      session.members.set(socketId, member);
+      
+      // Update session leadership if needed
+      const updates = { members: session.members };
+      if (role === 'leader') {
+        updates.leaderSocketId = socketId;
+      } else if (session.leaderSocketId === socketId) {
+        // Member stepping down from leadership, elect new leader
+        const newLeaderId = await this.electNewLeader(sessionId, socketId);
+        updates.leaderSocketId = newLeaderId;
+      }
+      
+      await this.redis.updateSession(sessionId, updates);
+      
+      // Notify all members
+      this.io.to(sessionId).emit(EVENTS.ROLE_ASSIGNED, {
+        socketId,
+        oldRole,
+        newRole: role,
+        sessionId,
+        timestamp: Date.now()
+      });
+      
+      // Send role-specific instructions to the member
+      const memberSocket = this.io.sockets.sockets.get(socketId);
+      if (memberSocket) {
+        const permissions = role === 'leader' 
+          ? ['start_metronome', 'change_tempo', 'manage_session']
+          : ['sync_position', 'send_messages'];
+          
+        memberSocket.emit(EVENTS.ROLE_ASSIGNED, {
+          role,
+          sessionId,
+          permissions,
+          timestamp: Date.now()
+        });
+      }
+      
+      console.log(`Role assigned in session ${sessionId}: ${socketId} -> ${role}`);
+      return true;
+    } catch (error) {
+      console.error('Error assigning role:', error);
       return false;
     }
   }
@@ -470,6 +662,27 @@ export class SessionManager {
         }
       });
 
+      // Role management
+      socket.on(EVENTS.ROLE_REQUEST, (data) => {
+        this.requestRoleChange(socket, data);
+      });
+      
+      socket.on(EVENTS.ROLE_TRANSFER, async (data) => {
+        // Handle leader transfer acceptance/rejection
+        if (data.accepted) {
+          await this.assignRole(data.sessionId, data.targetSocketId, 'leader');
+        } else {
+          const requesterSocket = this.io.sockets.sockets.get(data.requesterId);
+          if (requesterSocket) {
+            requesterSocket.emit(EVENTS.ROLE_REQUEST, {
+              status: 'rejected',
+              message: 'Leadership transfer declined',
+              timestamp: Date.now()
+            });
+          }
+        }
+      });
+
       // Metronome control
       socket.on(EVENTS.METRONOME_START, (data) => {
         if (this.checkRateLimit(socket, EVENTS.METRONOME_START)) {
@@ -507,21 +720,83 @@ export class SessionManager {
           sessions 
         });
       });
+      
+      // Connection health monitoring
+      socket.on(EVENTS.LATENCY_RESPONSE, (data) => {
+        // Update sync engine with latency response
+        this.syncEngine.latencyTrackers.get(socket.id).lastSync = Date.now();
+        
+        // Calculate and store RTT
+        const rtt = Date.now() - data.clientTimestamp;
+        this.latencyMetrics.clientLatencies.set(socket.id, {
+          timestamp: Date.now(),
+          rtt,
+          sessionId: data.sessionId || 'unknown',
+          clockOffset: data.serverTimestamp - data.clientTimestamp
+        });
+      });
+      
+      // Session-specific events
+      socket.on(EVENTS.SESSION_LEAVE, async (data) => {
+        await this.leaveSession(socket, data.sessionId);
+      });
+      
+      // Error reporting from client
+      socket.on(EVENTS.ERROR_SYNC_DRIFT, (data) => {
+        console.warn(`Sync drift reported by client ${socket.id}:`, data);
+        
+        // Forward to sync engine for drift correction
+        if (data.sessionId && data.positionMs && data.timestamp) {
+          this.syncEngine.correctSyncDrift(data.sessionId, data.positionMs, data.timestamp, socket.id);
+        }
+      });
 
-      // Disconnect handling
-      socket.on('disconnect', async () => {
-        console.log(`Client disconnected: ${socket.id}`);
+      // Enhanced disconnect handling with leader election
+      socket.on('disconnect', async (reason) => {
+        console.log(`Client disconnected: ${socket.id}, reason: ${reason}`);
+        
+        const disconnectionTime = Date.now();
         
         // Leave all sessions this socket was in
         const rooms = Array.from(socket.rooms);
         for (const room of rooms) {
           if (room !== socket.id) { // Skip the default socket room
+            const session = await this.redis.getSession(room);
+            
+            // Special handling for leader disconnection
+            if (session && session.leaderSocketId === socket.id) {
+              console.log(`Leader ${socket.id} disconnected from session ${room}`);
+              
+              // Elect new leader before removing member
+              const newLeaderId = await this.electNewLeader(room, socket.id);
+              
+              if (newLeaderId) {
+                await this.handleLeaderTransition(room, socket.id, newLeaderId);
+              } else {
+                // No one to elect, pause session
+                await this.redis.updateSession(room, {
+                  leaderSocketId: null,
+                  'metronome.isPlaying': false,
+                  'metronome.pausedByDisconnection': disconnectionTime
+                });
+                
+                this.io.to(room).emit(EVENTS.SESSION_PAUSED, {
+                  reason: 'leader_disconnected',
+                  message: 'Session paused - no leader available',
+                  timestamp: disconnectionTime
+                });
+              }
+            }
+            
             await this.leaveSession(socket, room);
           }
         }
         
-        // Cleanup rate limiters
+        // Cleanup rate limiters and latency tracking
         this.rateLimiters.delete(socket.id);
+        
+        // Profile disconnection for monitoring
+        this.profileLatency('system', 'client_disconnect', disconnectionTime, socket.id);
       });
     });
   }
@@ -573,10 +848,52 @@ export class SessionManager {
       console.log(`Cleaned up ${cleanedCount} expired sessions`);
     }
 
+    // Check for orphaned sessions (sessions without leaders)
+    await this.checkOrphanedSessions();
+    
     // Emit health metrics
-    this.io.emit(EVENTS.HEALTH_CHECK, this.healthMetrics);
+    const healthReport = {
+      ...this.healthMetrics,
+      syncEngineMetrics: this.syncEngine.metrics,
+      timestamp: Date.now()
+    };
+    
+    this.io.emit(EVENTS.HEALTH_CHECK, healthReport);
     
     console.log(`Health: ${this.healthMetrics.totalSessions} sessions, ${this.healthMetrics.totalConnections} connections`);
+  }
+  
+  async checkOrphanedSessions() {
+    try {
+      const activeSessions = await this.redis.getActiveSessions();
+      
+      for (const session of activeSessions) {
+        if (!session.leaderSocketId || session.members.size === 0) {
+          continue; // Skip sessions without members
+        }
+        
+        // Check if leader is still connected
+        const leaderSocket = this.io.sockets.sockets.get(session.leaderSocketId);
+        if (!leaderSocket || !leaderSocket.connected) {
+          console.log(`Orphaned session detected: ${session.sessionId}`);
+          
+          // Elect new leader
+          const newLeaderId = await this.electNewLeader(session.sessionId);
+          if (newLeaderId) {
+            await this.handleLeaderTransition(session.sessionId, session.leaderSocketId, newLeaderId);
+          } else {
+            // No one available, pause session
+            await this.redis.updateSession(session.sessionId, {
+              leaderSocketId: null,
+              'metronome.isPlaying': false,
+              'metronome.pausedByOrphan': Date.now()
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking orphaned sessions:', error);
+    }
   }
 
   /**

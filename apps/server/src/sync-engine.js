@@ -131,8 +131,8 @@ export class SyncEngine {
     const beatsPerSecond = bpm / 60;
     const beatIntervalMs = 1000 / beatsPerSecond;
     
-    // Use 4x higher resolution for position tracking
-    const syncIntervalMs = Math.min(beatIntervalMs / 4, 12.5); // Max 12.5ms (80 FPS)
+    // Use 4x higher resolution for position tracking (optimized for sub-50ms latency)
+    const syncIntervalMs = Math.min(beatIntervalMs / 4, 10); // Max 10ms (100 FPS) for better precision
     
     console.log(`Starting metronome sync: ${bpm} BPM, beat interval: ${beatIntervalMs}ms, sync interval: ${syncIntervalMs}ms`);
 
@@ -161,28 +161,33 @@ export class SyncEngine {
           tempo: bpm
         };
 
-        // Emit beat with high priority
+        // Emit beat with high priority (minimal payload for performance)
         await this.emitTimed(sessionId, EVENTS.METRONOME_BEAT, {
-          sessionId,
-          beatInfo,
-          timestamp: beatTime
+          s: sessionId,
+          b: beatInfo.beatNumber,
+          m: beatInfo.measureNumber,
+          t: beatTime,
+          bpm: bpm
         }, EVENT_PRIORITIES[EVENTS.METRONOME_BEAT]);
       }
 
-      // High-frequency position sync
+      // High-frequency position sync (optimized payload)
       const positionMs = elapsedMs;
       await this.emitTimed(sessionId, EVENTS.POSITION_SYNC, {
-        sessionId,
-        positionMs,
-        timestamp: currentTime,
-        beatProgress: (elapsedMs % beatIntervalMs) / beatIntervalMs
+        s: sessionId,
+        p: Math.round(positionMs), // Round to reduce JSON size
+        t: currentTime,
+        bp: Math.round((elapsedMs % beatIntervalMs) / beatIntervalMs * 100) / 100 // 2 decimal places
       }, EVENT_PRIORITIES[EVENTS.POSITION_SYNC]);
 
-      // Store position in Redis for recovery
-      if (beatCount % 4 === 0) { // Every 4th beat
-        await this.redis.updatePosition(sessionId, positionMs, currentTime, {
-          beatNumber: beatInfo?.beatNumber,
-          measureNumber: beatInfo?.measureNumber
+      // Store position in Redis for recovery (less frequent to reduce Redis load)
+      if (beatCount % 8 === 0) { // Every 8th beat (every 2 measures)
+        // Use fire-and-forget to not block sync loop
+        setImmediate(async () => {
+          await this.redis.updatePosition(sessionId, positionMs, currentTime, {
+            beatNumber: beatInfo?.beatNumber,
+            measureNumber: beatInfo?.measureNumber
+          });
         });
       }
 
@@ -258,37 +263,99 @@ export class SyncEngine {
   
   async emitTimed(sessionId, event, data, priority = 2) {
     const room = this.io.sockets.adapter.rooms.get(sessionId);
-    if (!room) return;
+    if (!room || room.size === 0) return;
+
+    // For high-frequency events, use bulk emission for better performance
+    if (priority === EVENT_PRIORITIES.HIGH || priority === EVENT_PRIORITIES.CRITICAL) {
+      return this.emitBulkOptimized(sessionId, event, data, room);
+    }
 
     // Get latency-optimized member list
     const members = Array.from(room);
     const sortedMembers = this.sortMembersByLatency(members);
     
-    // Emit to lowest latency members first
-    for (const socketId of sortedMembers) {
-      const socket = this.io.sockets.sockets.get(socketId);
-      if (socket) {
-        // Adjust timing for individual client latency
-        const tracker = this.latencyTrackers.get(socketId);
-        const adjustedData = tracker ? {
-          ...data,
-          latencyCompensation: tracker.avgLatency
-        } : data;
-        
-        socket.emit(event, adjustedData);
-      }
+    // Emit to lowest latency members first (batched for performance)
+    const batchSize = 10; // Process in batches to prevent blocking
+    for (let i = 0; i < sortedMembers.length; i += batchSize) {
+      const batch = sortedMembers.slice(i, i + batchSize);
+      
+      // Process batch with minimal delay
+      setImmediate(() => {
+        for (const socketId of batch) {
+          const socket = this.io.sockets.sockets.get(socketId);
+          if (socket && socket.connected) {
+            // For high-frequency events, skip latency compensation to reduce CPU
+            if (event === EVENTS.POSITION_SYNC || event === EVENTS.METRONOME_BEAT) {
+              socket.volatile.emit(event, data);
+            } else {
+              const tracker = this.latencyTrackers.get(socketId);
+              const adjustedData = tracker ? {
+                ...data,
+                lc: Math.round(tracker.avgLatency) // Shortened key for performance
+              } : data;
+              
+              socket.emit(event, adjustedData);
+            }
+          }
+        }
+      });
     }
 
-    // Also publish to Redis for horizontal scaling
-    await this.redis.publishToSession(sessionId, event, data);
+    // Publish to Redis for horizontal scaling (fire and forget for high-freq events)
+    if (priority !== EVENT_PRIORITIES.HIGH) {
+      await this.redis.publishToSession(sessionId, event, data);
+    } else {
+      // Non-blocking Redis publish for high-frequency events
+      setImmediate(() => {
+        this.redis.publishToSession(sessionId, event, data).catch(err => {
+          console.warn('Redis publish failed for high-freq event:', err.message);
+        });
+      });
+    }
+  }
+  
+  emitBulkOptimized(sessionId, event, data, room) {
+    // Ultra-fast emission for critical timing events
+    const socketIds = Array.from(room);
+    
+    // Use Socket.io's built-in room emission for maximum performance
+    this.io.to(sessionId).volatile.emit(event, data);
+    
+    // Count successful emissions for metrics
+    let successCount = 0;
+    for (const socketId of socketIds) {
+      const socket = this.io.sockets.sockets.get(socketId);
+      if (socket && socket.connected) {
+        successCount++;
+      }
+    }
+    
+    return successCount;
   }
 
   sortMembersByLatency(socketIds) {
-    return socketIds.sort((a, b) => {
+    // Cache sorted results for performance
+    const cacheKey = socketIds.join(',');
+    const now = Date.now();
+    
+    if (this._sortCache && this._sortCache.key === cacheKey && (now - this._sortCache.timestamp) < 5000) {
+      return this._sortCache.result;
+    }
+    
+    const sorted = socketIds.sort((a, b) => {
       const latencyA = this.latencyTrackers.get(a)?.avgLatency || 999;
       const latencyB = this.latencyTrackers.get(b)?.avgLatency || 999;
       return latencyA - latencyB;
     });
+    
+    // Cache result for 5 seconds
+    this._sortCache = {
+      key: cacheKey,
+      result: sorted,
+      timestamp: now
+    };
+    
+    return sorted;
   }
 
   /**
@@ -298,34 +365,287 @@ export class SyncEngine {
   setupPerformanceMonitoring() {
     setInterval(() => {
       this.updateMetrics();
+      this.performHealthChecks();
     }, 5000); // Every 5 seconds
+    
+    // More frequent heartbeat check
+    setInterval(() => {
+      this.checkConnectionHealth();
+    }, 1000); // Every 1 second
   }
 
   updateMetrics() {
     const now = Date.now();
     const allTrackers = Array.from(this.latencyTrackers.values());
     
-    if (allTrackers.length === 0) return;
+    if (allTrackers.length === 0) {
+      this.metrics = {
+        avgLatency: 0,
+        syncDrift: 0,
+        activeSessions: this.syncIntervals.size,
+        connectedClients: 0,
+        lastMetricsUpdate: now,
+        performance: 'no-connections'
+      };
+      return;
+    }
     
     const avgLatency = allTrackers.reduce((sum, t) => sum + t.avgLatency, 0) / allTrackers.length;
+    const maxLatency = Math.max(...allTrackers.map(t => t.avgLatency));
+    const minLatency = Math.min(...allTrackers.map(t => t.avgLatency));
+    
+    // Calculate performance rating
+    let performance = 'excellent';
+    if (avgLatency > 25) performance = 'good';
+    if (avgLatency > 50) performance = 'fair';
+    if (avgLatency > 100) performance = 'poor';
     
     this.metrics = {
       avgLatency,
+      maxLatency,
+      minLatency,
       syncDrift: this.metrics.syncDrift, // Persistent until next drift event
       activeSessions: this.syncIntervals.size,
       connectedClients: allTrackers.length,
-      lastMetricsUpdate: now
+      lastMetricsUpdate: now,
+      performance,
+      targetLatency: 50
     };
     
     // Emit metrics to monitoring systems
     this.io.emit(EVENTS.METRICS_UPDATE, this.metrics);
     
+    // Log performance issues
+    if (avgLatency > 50) {
+      console.warn(`Performance Warning - Avg Latency: ${avgLatency.toFixed(2)}ms (target: <50ms)`);
+    }
+    
     // Reset drift counter
     this.metrics.syncDrift = 0;
     
-    console.log(`Metrics - Avg Latency: ${avgLatency.toFixed(2)}ms, Active Sessions: ${this.syncIntervals.size}`);
+    console.log(`Metrics - Avg Latency: ${avgLatency.toFixed(2)}ms, Active Sessions: ${this.syncIntervals.size}, Performance: ${performance}`);
   }
 
+  /**
+   * CONNECTION HEALTH MONITORING
+   */
+  
+  async checkConnectionHealth() {
+    const now = Date.now();
+    const staleThreshold = 30000; // 30 seconds
+    const disconnectThreshold = 60000; // 60 seconds
+    
+    for (const [socketId, tracker] of this.latencyTrackers) {
+      const timeSinceLastSync = now - tracker.lastSync;
+      
+      // Check if connection is stale
+      if (timeSinceLastSync > staleThreshold && timeSinceLastSync < disconnectThreshold) {
+        const socket = this.getSocketById(socketId);
+        if (socket) {
+          // Send health probe
+          socket.emit(EVENTS.LATENCY_PROBE, { 
+            timestamp: now, 
+            healthCheck: true 
+          });
+        }
+      }
+      
+      // Remove very stale connections
+      if (timeSinceLastSync > disconnectThreshold) {
+        console.log(`Removing stale connection: ${socketId}`);
+        this.latencyTrackers.delete(socketId);
+        this.clockSyncOffsets.delete(socketId);
+        
+        // Notify about connection quality issue
+        const socket = this.getSocketById(socketId);
+        if (socket) {
+          socket.emit(EVENTS.ERROR_CONNECTION_LOST, {
+            reason: 'health_check_failed',
+            lastSeen: tracker.lastSync,
+            shouldReconnect: true
+          });
+        }
+      }
+    }
+  }
+  
+  async performHealthChecks() {
+    const healthyConnections = [];
+    const unhealthyConnections = [];
+    const targetLatency = 50; // ms
+    
+    for (const [socketId, tracker] of this.latencyTrackers) {
+      if (tracker.avgLatency <= targetLatency && tracker.samples.length >= 3) {
+        healthyConnections.push({ socketId, latency: tracker.avgLatency });
+      } else {
+        unhealthyConnections.push({ 
+          socketId, 
+          latency: tracker.avgLatency,
+          issues: this.diagnoseConnectionIssues(tracker)
+        });
+      }
+    }
+    
+    // Emit health report
+    const healthReport = {
+      timestamp: Date.now(),
+      healthy: healthyConnections.length,
+      unhealthy: unhealthyConnections.length,
+      targetLatency,
+      avgLatency: this.metrics.avgLatency,
+      activeSessions: this.syncIntervals.size
+    };
+    
+    this.io.emit(EVENTS.HEALTH_CHECK, healthReport);
+    
+    // Log health issues
+    if (unhealthyConnections.length > 0) {
+      console.warn(`Health check: ${unhealthyConnections.length} connections with issues`);
+      unhealthyConnections.forEach(conn => {
+        console.warn(`  ${conn.socketId}: ${conn.latency.toFixed(2)}ms - ${conn.issues.join(', ')}`);
+      });
+    }
+  }
+  
+  diagnoseConnectionIssues(tracker) {
+    const issues = [];
+    
+    if (tracker.avgLatency > 100) {
+      issues.push('high_latency');
+    }
+    
+    if (tracker.samples.length < 3) {
+      issues.push('insufficient_samples');
+    }
+    
+    const now = Date.now();
+    if (now - tracker.lastSync > 30000) {
+      issues.push('stale_connection');
+    }
+    
+    const latencyVariance = this.calculateLatencyVariance(tracker.samples);
+    if (latencyVariance > 50) {
+      issues.push('unstable_connection');
+    }
+    
+    return issues.length > 0 ? issues : ['unknown'];
+  }
+  
+  calculateLatencyVariance(samples) {
+    if (samples.length < 2) return 0;
+    
+    const latencies = samples.map(s => s.networkLatency);
+    const mean = latencies.reduce((sum, val) => sum + val, 0) / latencies.length;
+    const squaredDiffs = latencies.map(val => Math.pow(val - mean, 2));
+    const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / latencies.length;
+    
+    return Math.sqrt(variance); // Standard deviation
+  }
+  
+  /**
+   * PERFORMANCE OPTIMIZATION
+   */
+  
+  async updateTempo(sessionId, newTempo, rampDurationMs = 0) {
+    const syncData = this.syncIntervals.get(sessionId);
+    if (!syncData) return false;
+    
+    console.log(`Updating tempo for session ${sessionId}: ${syncData.tempo} -> ${newTempo} BPM`);
+    
+    // Calculate new timing intervals
+    const newBeatIntervalMs = (60 / newTempo) * 1000;
+    const newSyncIntervalMs = Math.min(newBeatIntervalMs / 4, 12.5);
+    
+    // If ramping, implement gradual change
+    if (rampDurationMs > 0) {
+      return await this.performTempoRamp(sessionId, syncData.tempo, newTempo, rampDurationMs);
+    }
+    
+    // Immediate tempo change
+    syncData.tempo = newTempo;
+    syncData.beatIntervalMs = newBeatIntervalMs;
+    
+    // Restart interval with new timing
+    clearInterval(syncData.interval);
+    
+    const currentTime = this.getHighResTimestamp();
+    const elapsedMs = currentTime - syncData.startTime;
+    let beatCount = Math.floor(elapsedMs / syncData.beatIntervalMs);
+    
+    const interval = setInterval(async () => {
+      const now = this.getHighResTimestamp();
+      const elapsed = now - syncData.startTime;
+      const expectedBeatCount = Math.floor(elapsed / newBeatIntervalMs);
+      
+      if (expectedBeatCount > beatCount) {
+        beatCount = expectedBeatCount;
+        const beatTime = syncData.startTime + (beatCount * newBeatIntervalMs);
+        
+        await this.emitTimed(sessionId, EVENTS.METRONOME_BEAT, {
+          sessionId,
+          beatInfo: {
+            beatNumber: (beatCount % 4) + 1,
+            measureNumber: Math.floor(beatCount / 4) + 1,
+            exactBeatTime: beatTime,
+            tempo: newTempo
+          },
+          timestamp: beatTime
+        }, EVENT_PRIORITIES[EVENTS.METRONOME_BEAT]);
+      }
+      
+      // High-frequency position sync
+      await this.emitTimed(sessionId, EVENTS.POSITION_SYNC, {
+        sessionId,
+        positionMs: elapsed,
+        timestamp: now,
+        beatProgress: (elapsed % newBeatIntervalMs) / newBeatIntervalMs
+      }, EVENT_PRIORITIES[EVENTS.POSITION_SYNC]);
+      
+    }, newSyncIntervalMs);
+    
+    syncData.interval = interval;
+    this.syncIntervals.set(sessionId, syncData);
+    
+    return true;
+  }
+  
+  async performTempoRamp(sessionId, fromTempo, toTempo, durationMs) {
+    const syncData = this.syncIntervals.get(sessionId);
+    if (!syncData) return false;
+    
+    console.log(`Performing tempo ramp for session ${sessionId}: ${fromTempo} -> ${toTempo} over ${durationMs}ms`);
+    
+    const startTime = this.getHighResTimestamp();
+    const tempoDifference = toTempo - fromTempo;
+    const rampSteps = Math.max(10, Math.floor(durationMs / 100)); // At least 10 steps
+    const stepDuration = durationMs / rampSteps;
+    
+    for (let step = 0; step <= rampSteps; step++) {
+      const progress = step / rampSteps;
+      const currentTempo = fromTempo + (tempoDifference * progress);
+      
+      // Emit tempo ramp update
+      this.io.to(sessionId).emit(EVENTS.TEMPO_RAMP, {
+        sessionId,
+        currentTempo,
+        targetTempo: toTempo,
+        progress,
+        timestamp: this.getHighResTimestamp()
+      });
+      
+      // Update sync intervals for current tempo
+      syncData.tempo = currentTempo;
+      syncData.beatIntervalMs = (60 / currentTempo) * 1000;
+      
+      if (step < rampSteps) {
+        await new Promise(resolve => setTimeout(resolve, stepDuration));
+      }
+    }
+    
+    // Final update with exact target tempo
+    return await this.updateTempo(sessionId, toTempo, 0);
+  }
+  
   /**
    * UTILITY METHODS
    */
