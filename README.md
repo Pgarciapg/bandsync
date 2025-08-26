@@ -10,6 +10,10 @@ Mobile + realtime server to keep bands literally on the same page.
 5. Start mobile: `npm run dev:mobile` (Expo)
 6. Set `EXPO_PUBLIC_SERVER_URL` to your LAN IP (e.g. `http://192.168.1.21:3001`) for real devices.
 
+## Server Setup
+
+The server will try to connect to a Redis instance using `REDIS_HOST` and `REDIS_PORT` environment variables. Start a local Redis server with `brew services start redis` or `docker run -p 6379:6379 redis` for persistent session storage. If no Redis instance is available or the connection fails, the server gracefully falls back to an in-memory store (data will reset on restart).
+
 ## 30-Second Demo
 
 **To demonstrate BandSync quickly:**
