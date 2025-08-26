@@ -157,6 +157,20 @@ export function useSocket(sessionId) {
       console.error("Socket error:", error);
     });
 
+    // Handle heartbeat events (for enhanced connection monitoring)
+    socket.on("heartbeat", ({ timestamp }) => {
+      // Server is requesting heartbeat - respond immediately
+      socket.emit("heartbeat_response", {
+        clientTimestamp: timestamp,
+        serverTimestamp: Date.now()
+      });
+    });
+
+    socket.on("heartbeat_response", ({ timestamp, serverTimestamp }) => {
+      // Handle heartbeat response for connection quality monitoring
+      // This is handled by useConnectionStatus hook
+    });
+
     // Set up latency probe interval when connected
     const startLatencyProbes = () => {
       if (latencyProbeRef.current) {
@@ -218,6 +232,7 @@ export function useSocket(sessionId) {
     emit, 
     connected, 
     roomStats,
+    socket: socketRef.current, // Expose socket for ConnectionStatus component
     // Enhanced connection status
     connectionStatus,
     latency,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, Button, TextInput, StyleSheet, Switch, TouchableOpacity, Alert, Animated } from "react-native";
 import * as Haptics from 'expo-haptics';
 import Slider from "@react-native-community/slider";
+import { PanGestureHandler, State, GestureHandlerRootView } from 'react-native-gesture-handler';
 // For now, let's use the server events directly
 const EVENTS = {
   JOIN_SESSION: "join_session",
@@ -20,10 +21,10 @@ import PdfScroller from "../components/PdfScroller";
 import Metronome from "../components/Metronome";
 import { ThemedView } from "../components/ThemedView";
 import { ThemedText } from "../components/ThemedText";
-import ConnectionStatusIndicator from "../components/ConnectionStatusIndicator";
+import ConnectionStatus from "../components/ConnectionStatus";
+import SessionInfo from "../components/SessionInfo";
 
-// Session role type
-type UserRole = 'leader' | 'follower';
+// Session role type: 'leader' | 'follower'
 
 // Enhanced NetworkStatusBanner Component with connection status awareness
 function NetworkStatusBanner({ connected, connectionStatus, latency, onReconnect }) {
@@ -242,15 +243,17 @@ function SessionStatus({
         </View>
       </View>
       
-      {/* Enhanced Connection Status Indicator */}
-      <ConnectionStatusIndicator
+      {/* Enhanced Connection Status with Network Health */}
+      <ConnectionStatus
         connected={connected}
         connectionStatus={connectionStatus}
         latency={latency}
         latencyStatus={latencyStatus}
         syncQuality={syncQuality}
         packetLoss={packetLoss}
+        sessionState={state}
         compact={false}
+        onReconnect={handleReconnect}
       />
       
       <View style={styles.sessionMetrics}>
@@ -298,6 +301,7 @@ export default function SessionScreen({ sessionId = "demo" }) {
     emit, 
     connected, 
     roomStats,
+    socket,
     connectionStatus,
     latency,
     latencyStatus,
@@ -406,12 +410,25 @@ export default function SessionScreen({ sessionId = "demo" }) {
   };
 
   return (
+    <GestureHandlerRootView style={styles.container}>
     <ThemedView style={styles.container}>
       <NetworkStatusBanner 
         connected={connected}
         connectionStatus={connectionStatus}
         latency={latency}
         onReconnect={handleReconnect} 
+      />
+      
+      <SessionInfo 
+        sessionId={sessionId}
+        memberCount={roomStats?.memberCount || 0}
+        members={roomStats?.members || []}
+        creationTime={roomStats?.creationTime || Date.now()}
+        currentUserRole={role}
+        onMemberPress={(member) => {
+          console.log('Member pressed:', member);
+          // Could add member interaction features here
+        }}
       />
       
       <SessionStatus 
@@ -461,7 +478,26 @@ export default function SessionScreen({ sessionId = "demo" }) {
           )}
         </View>
       ) : (
-        <View style={styles.controls}>
+        <PanGestureHandler
+          onGestureEvent={(event) => {
+            if (role !== "leader" || !connected) return;
+            
+            const { translationX, velocityX } = event.nativeEvent;
+            
+            // Only trigger on significant horizontal swipe
+            if (Math.abs(translationX) > 50 && Math.abs(velocityX) > 600) {
+              const tempoChange = translationX > 0 ? 5 : -5;
+              const newTempo = Math.max(1, Math.min(300, tempoBpm + tempoChange));
+              
+              if (newTempo !== tempoBpm) {
+                handleTempoChange(newTempo);
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              }
+            }
+          }}
+          enabled={role === "leader" && connected}
+        >
+          <View style={styles.controls}>
           <FollowerControlHint 
             role={role}
             show={showFollowerHint}
@@ -477,14 +513,16 @@ export default function SessionScreen({ sessionId = "demo" }) {
           
           {/* Compact connection status in controls */}
           <View style={styles.compactStatusRow}>
-            <ConnectionStatusIndicator
+            <ConnectionStatus
               connected={connected}
               connectionStatus={connectionStatus}
               latency={latency}
               latencyStatus={latencyStatus}
               syncQuality={syncQuality}
               packetLoss={packetLoss}
+              sessionState={state}
               compact={true}
+              showReconnectButton={false}
             />
             {syncQuality !== null && (
               <Text style={styles.compactQualityText}>
@@ -493,6 +531,15 @@ export default function SessionScreen({ sessionId = "demo" }) {
             )}
           </View>
           
+          {/* Compact Session Info in Controls */}
+          <SessionInfo 
+            sessionId={sessionId}
+            memberCount={roomStats?.memberCount || 0}
+            members={roomStats?.members || []}
+            compact={true}
+            style={{ marginBottom: 12 }}
+          />
+          
           <View style={styles.controlsHeader}>
             
             <View style={styles.compactControls}>
@@ -500,14 +547,109 @@ export default function SessionScreen({ sessionId = "demo" }) {
                 <Text style={[styles.tempoText, role !== "leader" && styles.disabledText]}>
                   {role === "leader" ? "👑" : "👥"} Tempo: {Math.round(tempoBpm)} BPM
                 </Text>
+                
+                {/* Enhanced Tempo Slider with Haptic Feedback and Swipe Gestures */}
                 {role === "leader" ? (
-                  <TextInput
-                    style={styles.compactInput}
-                    value={tempoBpm.toString()}
-                    onChangeText={(text) => handleTempoChange(parseInt(text) || 100)}
-                    keyboardType="numeric"
-                    placeholder="BPM"
-                  />
+                  <PanGestureHandler
+                    onGestureEvent={(event) => {
+                      if (!connected) return;
+                      
+                      const { translationX, velocityX } = event.nativeEvent;
+                      
+                      // Only trigger on significant horizontal swipe
+                      if (Math.abs(translationX) > 30 && Math.abs(velocityX) > 500) {
+                        const tempoChange = translationX > 0 ? 5 : -5;
+                        const newTempo = Math.max(1, Math.min(300, tempoBpm + tempoChange));
+                        
+                        if (newTempo !== tempoBpm) {
+                          handleTempoChange(newTempo);
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }
+                      }
+                    }}
+                    onHandlerStateChange={(event) => {
+                      if (event.nativeEvent.state === State.END) {
+                        // Reset gesture state if needed
+                      }
+                    }}
+                  >
+                    <View style={styles.tempoSliderContainer}>
+                      <View style={styles.swipeHintContainer}>
+                        <Text style={styles.swipeHint}>← Swipe left/right for ±5 BPM →</Text>
+                      </View>
+                      
+                      <View style={styles.tempoControlRow}>
+                        <TouchableOpacity
+                          style={styles.tempoButton}
+                          onPress={async () => {
+                            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            const newTempo = Math.max(1, tempoBpm - 5);
+                            handleTempoChange(newTempo);
+                          }}
+                          disabled={!connected}
+                        >
+                          <Text style={styles.tempoButtonText}>-5</Text>
+                        </TouchableOpacity>
+                        
+                        <View style={styles.sliderContainer}>
+                          <Slider
+                            style={styles.tempoSlider}
+                            minimumValue={1}
+                            maximumValue={300}
+                            value={tempoBpm}
+                            onValueChange={async (value) => {
+                              if (Math.abs(value - tempoBpm) >= 1) {
+                                await Haptics.selectionAsync();
+                                handleTempoChange(Math.round(value));
+                              }
+                            }}
+                            onSlidingComplete={async (value) => {
+                              await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                            }}
+                            minimumTrackTintColor={"#4CAF50"}
+                            maximumTrackTintColor={"#e0e0e0"}
+                            thumbStyle={styles.sliderThumb}
+                            trackStyle={styles.sliderTrack}
+                            disabled={!connected}
+                          />
+                          <View style={styles.tempoRange}>
+                            <Text style={styles.rangeText}>1</Text>
+                            <Text style={styles.rangeText}>300</Text>
+                          </View>
+                        </View>
+                        
+                        <TouchableOpacity
+                          style={styles.tempoButton}
+                          onPress={async () => {
+                            await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            const newTempo = Math.min(300, tempoBpm + 5);
+                            handleTempoChange(newTempo);
+                          }}
+                          disabled={!connected}
+                        >
+                          <Text style={styles.tempoButtonText}>+5</Text>
+                        </TouchableOpacity>
+                      </View>
+                      
+                      <TextInput
+                        style={styles.tempoInput}
+                        value={tempoBpm.toString()}
+                        onChangeText={(text) => {
+                          const value = parseInt(text);
+                          if (!isNaN(value) && value >= 1 && value <= 300) {
+                            handleTempoChange(value);
+                          }
+                        }}
+                        onEndEditing={async () => {
+                          await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        }}
+                        keyboardType="numeric"
+                        placeholder="BPM"
+                        maxLength={3}
+                        editable={connected}
+                      />
+                    </View>
+                  </PanGestureHandler>
                 ) : (
                   <TouchableOpacity
                     style={[styles.compactInput, styles.disabledInput]}
@@ -645,8 +787,10 @@ export default function SessionScreen({ sessionId = "demo" }) {
             )}
           </View>
         </View>
+        </PanGestureHandler>
       )}
     </ThemedView>
+    </GestureHandlerRootView>
   );
 }
 
@@ -1246,5 +1390,111 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#495057'
+  },
+  
+  // Enhanced Tempo Slider Styles
+  tempoSliderContainer: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2
+  },
+  tempoControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  tempoButton: {
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginHorizontal: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2
+  },
+  tempoButtonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold'
+  },
+  sliderContainer: {
+    flex: 1,
+    marginHorizontal: 8
+  },
+  tempoSlider: {
+    width: '100%',
+    height: 40
+  },
+  sliderThumb: {
+    backgroundColor: '#4CAF50',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4
+  },
+  sliderTrack: {
+    height: 6,
+    borderRadius: 3
+  },
+  tempoRange: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4
+  },
+  rangeText: {
+    fontSize: 10,
+    color: '#6c757d',
+    fontWeight: '500'
+  },
+  tempoInput: {
+    borderWidth: 1,
+    borderColor: '#ced4da',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+    color: '#495057',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
+    elevation: 1
+  },
+  
+  // Swipe gesture styles
+  swipeHintContainer: {
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(76, 175, 80, 0.2)'
+  },
+  swipeHint: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: 0.5
   }
 });

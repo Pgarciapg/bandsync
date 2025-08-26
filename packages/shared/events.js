@@ -50,6 +50,12 @@ export const EVENTS = {
   CONNECTION_LOST: "connection_lost",
   RECONNECTED: "reconnected",
   
+  // Heartbeat and connection management
+  PING: "ping",
+  PONG: "pong",
+  HEARTBEAT: "heartbeat",
+  CONNECTION_QUALITY: "connection_quality",
+  
   // Enhanced sync events (for Day 4+)
   POSITION_SYNC: "position_sync",
   DRIFT_CORRECTION: "drift_correction",
@@ -71,7 +77,11 @@ export const EVENT_CATEGORIES = {
     EVENTS.POSITION_SYNC,
     EVENTS.DRIFT_CORRECTION,
     EVENTS.CLOCK_SYNC,
-    EVENTS.TEMPO_CHANGED
+    EVENTS.TEMPO_CHANGED,
+    EVENTS.PING,
+    EVENTS.PONG,
+    EVENTS.HEARTBEAT,
+    EVENTS.CONNECTION_QUALITY
   ],
   TIMING: [
     EVENTS.SCROLL_TICK,

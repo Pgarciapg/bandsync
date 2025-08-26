@@ -13,8 +13,25 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
   const tempoTransition = useRef(new Animated.Value(tempoBpm)).current;
   const ringAnimation = useRef(new Animated.Value(0)).current;
   const glowAnimation = useRef(new Animated.Value(0)).current;
+  
+  // Enhanced beat indicator animations
+  const beatIndicatorAnimations = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0)
+  ]).current;
+  
+  // Tempo visualization animations
+  const tempoBarAnimations = useRef(
+    Array.from({ length: 8 }, () => new Animated.Value(0.2))
+  ).current;
+  
+  // Sync pulse animation for better feedback
+  const syncPulseAnimation = useRef(new Animated.Value(0)).current;
+  const tempoWaveAnimation = useRef(new Animated.Value(0)).current;
 
-  // Enhanced pulse effect with smooth animations
+  // Enhanced pulse effect with multiple visual indicators
   useEffect(() => {
     if (isPlaying && isEnabled) {
       setPulse(true);
@@ -49,6 +66,60 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
           })
         ]).start();
       }
+      
+      // Enhanced beat indicator animations with staggered timing
+      beatIndicatorAnimations.forEach((animation, index) => {
+        const delay = index * (enableReducedMotion ? 30 : 50);
+        setTimeout(() => {
+          Animated.sequence([
+            Animated.timing(animation, {
+              toValue: 1,
+              duration: duration * 0.4,
+              useNativeDriver: true,
+            }),
+            Animated.timing(animation, {
+              toValue: 0,
+              duration: duration * 0.6,
+              useNativeDriver: true,
+            })
+          ]).start();
+        }, delay);
+      });
+      
+      // Tempo bar visualization with wave-like pattern
+      if (!enableReducedMotion) {
+        tempoBarAnimations.forEach((animation, index) => {
+          const barDelay = index * 20;
+          const intensity = 0.3 + Math.sin(index * 0.5) * 0.4; // Wave pattern
+          setTimeout(() => {
+            Animated.sequence([
+              Animated.timing(animation, {
+                toValue: intensity,
+                duration: duration * 0.3,
+                useNativeDriver: false,
+              }),
+              Animated.timing(animation, {
+                toValue: 0.2,
+                duration: duration * 0.7,
+                useNativeDriver: false,
+              })
+            ]).start();
+          }, barDelay);
+        });
+      }
+      
+      // Sync pulse for better feedback
+      Animated.timing(syncPulseAnimation, {
+        toValue: 1,
+        duration: duration * 0.5,
+        useNativeDriver: true,
+      }).start(() => {
+        Animated.timing(syncPulseAnimation, {
+          toValue: 0,
+          duration: duration * 0.5,
+          useNativeDriver: true,
+        }).start();
+      });
       
       pulseSequence.start();
       
@@ -85,9 +156,10 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
     }).start();
   }, [syncQuality]);
   
-  // Glow effect for active state
+  // Glow effect and tempo wave for active state
   useEffect(() => {
     if (isPlaying && isEnabled) {
+      // Main glow animation
       Animated.loop(
         Animated.sequence([
           Animated.timing(glowAnimation, {
@@ -102,10 +174,24 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
           })
         ])
       ).start();
+      
+      // Continuous tempo wave visualization
+      if (!enableReducedMotion) {
+        Animated.loop(
+          Animated.timing(tempoWaveAnimation, {
+            toValue: 1,
+            duration: (60000 / tempoBpm) * 4, // Complete wave cycle over 4 beats
+            useNativeDriver: true,
+          })
+        ).start();
+      }
     } else {
       glowAnimation.setValue(0);
+      tempoWaveAnimation.setValue(0);
+      // Reset tempo bars when stopped
+      tempoBarAnimations.forEach(animation => animation.setValue(0.2));
     }
-  }, [isPlaying, isEnabled, enableReducedMotion]);
+  }, [isPlaying, isEnabled, enableReducedMotion, tempoBpm]);
 
   // Get sync status color based on latency and sync quality with high contrast support
   const getSyncStatusColor = () => {
@@ -179,8 +265,87 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
         </TouchableOpacity>
       </View>
       
-      {/* Main visual beat indicator */}
+      {/* Enhanced visual beat indicator section */}
       <View style={styles.beatIndicatorContainer}>
+        {/* Tempo visualization bars */}
+        {!enableReducedMotion && (
+          <View style={styles.tempoVisualizationContainer}>
+            {tempoBarAnimations.map((animation, index) => {
+              const rotation = tempoWaveAnimation.interpolate({
+                inputRange: [0, 1],
+                outputRange: ['0deg', '360deg']
+              });
+              
+              return (
+                <Animated.View 
+                  key={index}
+                  style={[
+                    styles.tempoBar,
+                    {
+                      height: animation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [20, 60]
+                      }),
+                      backgroundColor: getSyncStatusColor(),
+                      opacity: animation.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.3, 0.8]
+                      }),
+                      transform: [
+                        { 
+                          rotate: rotation
+                        },
+                        {
+                          translateY: animation.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, -10]
+                          })
+                        }
+                      ]
+                    }
+                  ]} 
+                />
+              );
+            })}
+          </View>
+        )}
+        
+        {/* Enhanced beat indicators around main circle */}
+        <View style={styles.beatIndicatorsRing}>
+          {beatIndicatorAnimations.map((animation, index) => {
+            const angle = (index * 90) * (Math.PI / 180); // 90 degrees apart
+            const radius = 80;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
+            
+            return (
+              <Animated.View
+                key={index}
+                style={[
+                  styles.beatIndicatorDot,
+                  {
+                    position: 'absolute',
+                    left: x,
+                    top: y,
+                    backgroundColor: getSyncStatusColor(),
+                    transform: [
+                      { scale: animation.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.5, 1.5]
+                        })
+                      }
+                    ],
+                    opacity: animation.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0.4, 1]
+                    })
+                  }
+                ]}
+              />
+            );
+          })}
+        </View>
+        
         {/* Animated ripple rings (reduced motion compatible) */}
         {!enableReducedMotion && (
           <Animated.View 
@@ -198,7 +363,25 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
           />
         )}
         
-        {/* Main beat circle */}
+        {/* Sync pulse ring for better feedback */}
+        <Animated.View 
+          style={[
+            styles.syncPulseRing,
+            {
+              transform: [{ scale: syncPulseAnimation.interpolate({
+                inputRange: [0, 1],
+                outputRange: [1, 1.1]
+              })}],
+              opacity: syncPulseAnimation.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 0.6]
+              }),
+              borderColor: getSyncStatusColor()
+            }
+          ]}
+        />
+        
+        {/* Main beat circle with enhanced styling */}
         <Animated.View style={[
           styles.beatCircle,
           {
@@ -215,7 +398,7 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
           </Animated.Text>
           <Text style={[styles.bpmLabel, enableHighContrast && styles.highContrastSubtext]}>BPM</Text>
           
-          {/* Beat indicator dot */}
+          {/* Enhanced beat indicator dot */}
           <Animated.View style={[
             styles.beatDot,
             {
@@ -224,6 +407,24 @@ export default function Metronome({ tempoBpm, isPlaying, syncQuality = null, lat
               opacity: isPlaying ? (pulse ? 1 : 0.6) : 0.3
             }
           ]} />
+          
+          {/* Tempo change indicator */}
+          {Math.abs(tempoBpm - previousTempo) > 5 && (
+            <Animated.View style={[
+              styles.tempoChangeIndicator,
+              {
+                backgroundColor: tempoBpm > previousTempo ? '#28a745' : '#ffc107',
+                opacity: tempoTransition.interpolate({
+                  inputRange: [previousTempo, tempoBpm],
+                  outputRange: [1, 0]
+                })
+              }
+            ]}>
+              <Text style={styles.tempoChangeText}>
+                {tempoBpm > previousTempo ? '↗' : '↘'}
+              </Text>
+            </Animated.View>
+          )}
         </Animated.View>
       </View>
       
@@ -351,12 +552,53 @@ const styles = StyleSheet.create({
     textAlign: 'center'
   },
   
-  // Beat indicator styles
+  // Enhanced beat indicator styles
   beatIndicatorContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-    position: 'relative'
+    position: 'relative',
+    height: 200,
+    width: 200
+  },
+  tempoVisualizationContainer: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexDirection: 'row'
+  },
+  tempoBar: {
+    width: 4,
+    marginHorizontal: 2,
+    borderRadius: 2,
+    position: 'absolute'
+  },
+  beatIndicatorsRing: {
+    position: 'absolute',
+    width: 160,
+    height: 160,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  beatIndicatorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3
+  },
+  syncPulseRing: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 2,
+    backgroundColor: 'transparent'
   },
   rippleRing: {
     position: 'absolute',
@@ -404,6 +646,26 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 2,
     elevation: 3
+  },
+  tempoChangeIndicator: {
+    position: 'absolute',
+    bottom: 8,
+    left: 8,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3
+  },
+  tempoChangeText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 'bold'
   },
   
   // Status styles

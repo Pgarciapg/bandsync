@@ -4,7 +4,7 @@
  */
 
 // Export session-related types
-export * from './session.js';
+export * from './session';
 
 // Base event types
 export enum EventType {

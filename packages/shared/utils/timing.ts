@@ -3,7 +3,7 @@
  * Provides high-precision timing, synchronization, and beat calculation
  */
 
-import { TimeSignature, BeatSubdivision, TransportState } from '../types/index.js';
+import { TimeSignature, BeatSubdivision, TransportState } from '../types/index';
 
 // High-precision timing constants
 export const TIMING_PRECISION = 1; // milliseconds

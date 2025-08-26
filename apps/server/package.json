@@ -4,7 +4,7 @@
   "type": "module",
   "main": "server-enhanced.js",
   "scripts": {
-    "dev": "nodemon server-hybrid.js",
+    "dev": "nodemon server.js",
     "dev:basic": "nodemon server.js", 
     "dev:enhanced": "nodemon server-enhanced.js",
     "dev:day6": "nodemon server-day6.js",
