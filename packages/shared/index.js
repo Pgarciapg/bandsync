@@ -4,10 +4,10 @@
  */
 
 // Re-export all types and interfaces
-export * from './types/index.js';
+export * from './types/index.ts';
 
 // Re-export timing utilities
-export * from './utils/timing.js';
+export * from './utils/timing.ts';
 
 // Re-export unified events
 export * from './events.js';

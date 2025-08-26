@@ -18,6 +18,7 @@ export const EVENTS = {
   // Tempo and timing
   SET_TEMPO: "set_tempo",
   TEMPO_CHANGE: "tempo_change",
+  TEMPO_CHANGED: "tempo_changed",
   
   // Real-time synchronization  
   SCROLL_TICK: "scroll_tick",
@@ -69,14 +70,16 @@ export const EVENT_CATEGORIES = {
     EVENTS.LATENCY_RESPONSE,
     EVENTS.POSITION_SYNC,
     EVENTS.DRIFT_CORRECTION,
-    EVENTS.CLOCK_SYNC
+    EVENTS.CLOCK_SYNC,
+    EVENTS.TEMPO_CHANGED
   ],
   TIMING: [
     EVENTS.SCROLL_TICK,
     EVENTS.METRONOME_TICK,
     EVENTS.BEAT_SYNC,
     EVENTS.SET_TEMPO,
-    EVENTS.TEMPO_CHANGE
+    EVENTS.TEMPO_CHANGE,
+    EVENTS.TEMPO_CHANGED
   ],
   TRANSPORT: [
     EVENTS.PLAY,

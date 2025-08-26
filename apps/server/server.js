@@ -197,7 +197,11 @@ io.on("connection", (socket) => {
       if (!s) return;
       console.log(`[${new Date().toISOString()}] UPDATE_MESSAGE: ${sessionId} -> "${message}"`);
       s.message = message;
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const sessionState = {
+        ...s,
+        serverTimestamp: Date.now()
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ERROR in UPDATE_MESSAGE:`, error);
     }
@@ -213,7 +217,11 @@ io.on("connection", (socket) => {
         s.message = "Leader connected";
         console.log(`[${new Date().toISOString()}] New leader set: ${socket.id} in ${sessionId}`);
       }
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const sessionState = {
+        ...s,
+        serverTimestamp: Date.now()
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ERROR in SET_ROLE:`, error);
     }
@@ -230,7 +238,11 @@ io.on("connection", (socket) => {
       console.log(`[${new Date().toISOString()}] SET_TEMPO: ${sessionId} -> ${tempo} BPM`);
       s.tempo = tempo;
       s.tempoBpm = tempo;
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const sessionState = {
+        ...s,
+        serverTimestamp: Date.now()
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ERROR in SET_TEMPO:`, error);
     }
@@ -246,7 +258,20 @@ io.on("connection", (socket) => {
       }
       console.log(`[${new Date().toISOString()}] PLAY: ${sessionId} at tempo ${s.tempoBpm} BPM`);
       s.isPlaying = true;
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const serverTimestamp = Date.now();
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
+      
+      // Also emit dedicated PLAY event with server timestamp for precise sync
+      io.to(sessionId).emit(EVENTS.PLAY, {
+        sessionId,
+        tempoBpm: s.tempoBpm,
+        position: s.position,
+        serverTimestamp
+      });
       
       // Start scroll tick interval
       if (!scrollIntervals.has(sessionId)) {
@@ -255,9 +280,12 @@ io.on("connection", (socket) => {
           const session = sessions.get(sessionId);
           if (session && session.isPlaying) {
             session.position += 100; // advance 100ms
+            const serverTimestamp = Date.now();
             io.to(sessionId).emit(EVENTS.SCROLL_TICK, { 
               sessionId, 
-              positionMs: session.position 
+              positionMs: session.position,
+              tempoBpm: session.tempoBpm,
+              serverTimestamp
             });
           }
         }, 100);
@@ -278,7 +306,19 @@ io.on("connection", (socket) => {
       }
       console.log(`[${new Date().toISOString()}] PAUSE: ${sessionId}`);
       s.isPlaying = false;
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const serverTimestamp = Date.now();
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
+      
+      // Also emit dedicated PAUSE event with server timestamp for precise sync
+      io.to(sessionId).emit(EVENTS.PAUSE, {
+        sessionId,
+        position: s.position,
+        serverTimestamp
+      });
       
       // Clear scroll tick interval
       if (scrollIntervals.has(sessionId)) {
@@ -301,7 +341,19 @@ io.on("connection", (socket) => {
       }
       console.log(`[${new Date().toISOString()}] SEEK: ${sessionId} -> ${position}ms`);
       s.position = position;
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const serverTimestamp = Date.now();
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
+      
+      // Also emit dedicated SEEK event with server timestamp for precise sync
+      io.to(sessionId).emit(EVENTS.SEEK, {
+        sessionId,
+        position,
+        serverTimestamp
+      });
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ERROR in SEEK:`, error);
     }
@@ -367,7 +419,18 @@ io.on("connection", (socket) => {
       console.log(`[${new Date().toISOString()}] STOP: ${sessionId}`);
       s.isPlaying = false;
       s.position = 0; // Reset to beginning
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const serverTimestamp = Date.now();
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
+      
+      // Also emit dedicated STOP event with server timestamp for precise sync
+      io.to(sessionId).emit(EVENTS.STOP, {
+        sessionId,
+        serverTimestamp
+      });
       
       // Clear scroll tick interval
       if (scrollIntervals.has(sessionId)) {
@@ -410,18 +473,65 @@ io.on("connection", (socket) => {
       s.tempo = tempo;
       s.tempoBpm = tempo;
       
+      const serverTimestamp = Date.now();
+      
       // Broadcast tempo change with timing info
       io.to(sessionId).emit(EVENTS.TEMPO_CHANGE, {
         sessionId,
         oldTempo,
         newTempo: tempo,
-        changeTime: Date.now(),
-        fadeTime: fadeTime || 0
+        changeTime: serverTimestamp,
+        fadeTime: fadeTime || 0,
+        serverTimestamp
       });
       
-      io.to(sessionId).emit(EVENTS.SNAPSHOT, s);
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
     } catch (error) {
       console.error(`[${new Date().toISOString()}] ERROR in TEMPO_CHANGE:`, error);
+    }
+  });
+
+  // Real-time tempo sync with immediate server timestamp (TEMPO_CHANGED vs TEMPO_CHANGE)
+  socket.on(EVENTS.TEMPO_CHANGED, ({ sessionId, tempo, fadeTime }) => {
+    try {
+      const s = sessions.get(sessionId);
+      if (!s) return;
+      if (s.leaderSocketId !== socket.id) {
+        console.log(`[${new Date().toISOString()}] BLOCKED TEMPO_CHANGED: ${socket.id} not leader in ${sessionId}`);
+        return;
+      }
+      
+      const oldTempo = s.tempoBpm;
+      console.log(`[${new Date().toISOString()}] TEMPO_CHANGED: ${sessionId} -> ${tempo} BPM (was ${oldTempo}) [REAL-TIME]`);
+      
+      s.tempo = tempo;
+      s.tempoBpm = tempo;
+      
+      const serverTimestamp = Date.now();
+      
+      // Broadcast immediate tempo change for real-time sync
+      io.to(sessionId).emit(EVENTS.TEMPO_CHANGED, {
+        sessionId,
+        oldTempo,
+        newTempo: tempo,
+        changeTime: serverTimestamp,
+        fadeTime: fadeTime || 0,
+        serverTimestamp,
+        isRealTime: true
+      });
+      
+      // Update session state with timestamp
+      const sessionState = {
+        ...s,
+        serverTimestamp
+      };
+      io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] ERROR in TEMPO_CHANGED:`, error);
     }
   });
 
@@ -529,7 +639,8 @@ io.on("connection", (socket) => {
           // Send updated session state
           const sessionState = {
             ...session,
-            members: Array.from(session.members.values())
+            members: Array.from(session.members.values()),
+            serverTimestamp: Date.now()
           };
           io.to(sessionId).emit(EVENTS.SNAPSHOT, sessionState);
           
