@@ -33,6 +33,97 @@ Mobile + realtime server to keep bands literally on the same page.
 - Member count shows connected users
 - Smooth scrolling tied to position
 
+## Run iOS
+
+### Prerequisites
+- macOS with Xcode 16.4 or later
+- Node.js 20.x (use `nvm use 20` to switch)
+- iOS Simulator or physical iOS device
+
+### First-time setup:
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Set up environment
+cp apps/mobile/.env.example apps/mobile/.env
+
+# 3. Generate iOS project (if ios/ folder doesn't exist)
+cd apps/mobile && npx expo prebuild -p ios
+```
+
+### Launch on iOS Simulator:
+```bash
+# From repository root
+export PATH="$HOME/.rbenv/bin:$PATH" && eval "$(rbenv init -)"
+cd apps/mobile && npx expo run:ios
+```
+
+The app will automatically:
+- Build the native iOS project
+- Install CocoaPods dependencies
+- Launch iOS Simulator (iPhone 16 Pro by default)
+- Start Metro bundler
+- Open the BandSync app
+
+### Alternative launch method:
+```bash
+# Start Metro bundler first
+npm --workspace apps/mobile run start
+
+# Then press 'i' in the terminal to launch iOS simulator
+```
+
+## Clean
+
+If you encounter build issues, try these steps:
+
+### Clean Metro cache:
+```bash
+npm --workspace apps/mobile run start -- --clear-cache
+```
+
+### Clean iOS build:
+```bash
+cd apps/mobile
+rm -rf ios/build
+npx expo prebuild -p ios --clear
+```
+
+### Clean everything:
+```bash
+# Clean node modules and reinstall
+rm -rf node_modules apps/mobile/node_modules
+npm install
+
+# Clean iOS and rebuild
+cd apps/mobile
+rm -rf ios
+npx expo prebuild -p ios
+```
+
+## Known Issues
+
+### CocoaPods Installation
+- If CocoaPods installation fails, the build process will handle it automatically
+- On older Ruby versions, you may need to install Ruby 3.1+ via rbenv:
+  ```bash
+  curl -fsSL https://github.com/rbenv/rbenv-installer/raw/HEAD/bin/rbenv-installer | bash
+  export PATH="$HOME/.rbenv/bin:$PATH"
+  eval "$(rbenv init -)"
+  rbenv install 3.1.0
+  rbenv global 3.1.0
+  gem install cocoapods
+  ```
+
+### Simulator Selection
+- App defaults to iPhone 16 Pro if iPhone 15 is not available
+- Use `xcrun simctl list devices` to see available simulators
+
+### Metro Bundle Issues
+- If Metro bundler fails to start, ensure the monorepo Metro config is properly set up
+- The `metro.config.js` should use `expo/metro-config` for Expo projects
+
 ## Workspaces
 - `apps/mobile`: Expo app with React Native
 - `apps/server`: Express + socket.io with session management  

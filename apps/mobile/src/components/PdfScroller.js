@@ -1,9 +1,18 @@
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, memo, useMemo, useCallback } from "react";
 import { ScrollView, Text, View, StyleSheet, Button, Alert } from "react-native";
 import * as DocumentPicker from 'expo-document-picker';
 
-export default function PdfScroller({ positionMs = 0 }) {
+// Performance optimization: Memoized content line component
+const ContentLine = memo(({ line, index }) => (
+  <View style={styles.line}>
+    <Text style={styles.lineNumber}>{(index + 1).toString().padStart(3, '0')}</Text>
+    <Text style={styles.lineContent}>{line}</Text>
+  </View>
+));
+
+const PdfScroller = memo(({ positionMs = 0 }) => {
   const scrollViewRef = useRef(null);
+  const lastPositionRef = useRef(0);
   const [content, setContent] = useState("");
   const [isPdfMode, setIsPdfMode] = useState(false);
   const pxPerMs = 0.15; // pixels per millisecond - slightly faster than FakeTab
@@ -13,17 +22,49 @@ export default function PdfScroller({ positionMs = 0 }) {
     loadDefaultContent();
   }, []);
 
+  // Performance optimization: Smooth scrolling similar to FakeTab
+  const smoothScrollTo = useCallback((targetPosition) => {
+    if (!scrollViewRef.current) return;
+    
+    const startPosition = lastPositionRef.current;
+    const distance = targetPosition - startPosition;
+    const duration = 100; // ms
+    let startTime = null;
+    
+    const animateScroll = (currentTime) => {
+      if (!startTime) startTime = currentTime;
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for smooth animation
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const currentPosition = startPosition + (distance * easeOut);
+      
+      scrollViewRef.current?.scrollTo({ 
+        y: currentPosition, 
+        animated: false 
+      });
+      
+      lastPositionRef.current = currentPosition;
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateScroll);
+      }
+    };
+    
+    requestAnimationFrame(animateScroll);
+  }, []);
+  
   useEffect(() => {
-    if (scrollViewRef.current) {
-      const scrollPosition = positionMs * pxPerMs;
-      scrollViewRef.current.scrollTo({ y: scrollPosition, animated: true });
+    const scrollPosition = positionMs * pxPerMs;
+    // Only scroll if position changed significantly (performance optimization)
+    if (Math.abs(scrollPosition - lastPositionRef.current) > 5) {
+      smoothScrollTo(scrollPosition);
     }
-  }, [positionMs]);
+  }, [positionMs, pxPerMs, smoothScrollTo]);
 
-  const loadDefaultContent = async () => {
-    try {
-      // For demo purposes, we'll use the text file we created
-      const sampleContent = `BandSync Sample Guitar Tab
+  // Performance optimization: Memoized default content
+  const defaultContent = useMemo(() => `BandSync Sample Guitar Tab
 
 Stairway to Heaven - Led Zeppelin
 Tuning: Standard (E A D G B E)
@@ -78,17 +119,20 @@ F     G     Am     F     G     Am
 
 And she's buying a stairway to heaven...
 
---- End of Tab ---`;
-
-      setContent(sampleContent);
+--- End of Tab ---`, []);
+  
+  const loadDefaultContent = useCallback(async () => {
+    try {
+      setContent(defaultContent);
       setIsPdfMode(false);
     } catch (error) {
       console.error('Error loading default content:', error);
       setContent("Error loading content");
     }
-  };
+  }, [defaultContent]);
 
-  const pickDocument = async () => {
+  // Performance optimization: Memoized document picker function
+  const pickDocument = useCallback(async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: ['application/pdf', 'text/plain'],
@@ -111,9 +155,18 @@ And she's buying a stairway to heaven...
       Alert.alert('Error', 'Failed to pick document');
       console.error('Document picker error:', error);
     }
-  };
+  }, []);
 
-  const renderContent = () => {
+  // Performance optimization: Memoized content rendering
+  const contentLines = useMemo(() => {
+    return content.split('\n');
+  }, [content]);
+  
+  const positionDisplay = useMemo(() => {
+    return Math.floor(positionMs / 1000);
+  }, [positionMs]);
+  
+  const renderContent = useCallback(() => {
     if (isPdfMode) {
       return (
         <View style={styles.pdfPlaceholder}>
@@ -125,15 +178,11 @@ And she's buying a stairway to heaven...
       );
     }
 
-    // Render text content line by line
-    const lines = content.split('\n');
-    return lines.map((line, index) => (
-      <View key={index} style={styles.line}>
-        <Text style={styles.lineNumber}>{(index + 1).toString().padStart(3, '0')}</Text>
-        <Text style={styles.lineContent}>{line}</Text>
-      </View>
+    // Render text content line by line with memoized components
+    return contentLines.map((line, index) => (
+      <ContentLine key={index} line={line} index={index} />
     ));
-  };
+  }, [isPdfMode, contentLines, loadDefaultContent]);
 
   return (
     <View style={styles.container}>
@@ -142,17 +191,25 @@ And she's buying a stairway to heaven...
         <Button title="Load File" onPress={pickDocument} />
       </View>
       
-      <Text style={styles.position}>Position: {Math.floor(positionMs / 1000)}s</Text>
+      <Text style={styles.position}>Position: {positionDisplay}s</Text>
       
       <ScrollView 
         ref={scrollViewRef}
         style={styles.scrollView}
         showsVerticalScrollIndicator={true}
+        // Performance optimizations
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        windowSize={5}
+        initialNumToRender={20}
       >
         {renderContent()}
       </ScrollView>
     </View>
   );
+});
+
+export default PdfScroller;
 }
 
 const styles = StyleSheet.create({
